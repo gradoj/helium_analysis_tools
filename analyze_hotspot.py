@@ -7,7 +7,14 @@ Functions to print information about a specific hotspot
 import argparse
 
 import utils
+from math import log10, pi
 from classes.Hotspots import Hotspots
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image
+import folium
+import io
+import os
 
 def __heading2str__(heading):
     headingstr = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
@@ -210,6 +217,161 @@ def pocv10_violations(hotspot, chals):
             own = 'same' if hotspot['owner'] == bad_h['owner'] else bad_h['owner'][-5:]
             print(f"{H.get_hotspot_by_addr(n)['name']:29} | {own:5} | {dist_km:5.1f}   | {__heading2str__(heading):7} | {bad_neighbors[n]['rssi']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['rssi']*100/bad_neighbors[n]['ttl']:3.0f}%) | {bad_neighbors[n]['snr']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['snr']*100/bad_neighbors[n]['ttl']:3.0f}%) |")
 
+
+def poc_polar(hotspot, chals):
+
+    H = Hotspots()
+    haddr = hotspot['address']
+    hlat, hlng = hotspot['lat'], hotspot['lng']
+    wl={}#witnesslist
+    c=299792458
+    
+    
+    for chal in chals:
+        for p in chal['path']:
+            if p['challengee'] == haddr:
+                for w in p['witnesses']:
+                    print(w)
+                    lat=H.get_hotspot_by_addr(w['gateway'])['lat']
+                    lng=H.get_hotspot_by_addr(w['gateway'])['lng']
+                    name=H.get_hotspot_by_addr(w['gateway'])['name']
+                    dist_km, heading = utils.haversine_km(hlat,
+                                                          hlng,
+                                                          lat,
+                                                          lng,
+                                                          return_heading=True)
+                    
+                    fspl=20*log10(dist_km*1000)+20*log10(915000000)+20*log10(4*pi/c)-27
+                    
+                    try:
+                        wl[w['gateway']]['lat']=lat
+                        wl[w['gateway']]['lng']=lng
+                        wl[w['gateway']]['rssi'].append(w['signal'])
+                    except KeyError:
+                        wl[w['gateway']]={'rssi':[w['signal'],],
+                                          'dist_km':dist_km,
+                                          'heading':heading,
+                                          'fspl':fspl,
+                                          'lat':lat,
+                                          'lng':lng,
+                                          'name':name}                    
+    ratios=[1.0]*16
+    N=len(ratios)-1
+    angles=[]
+    #angles = [n / float(N) *2 *pi for n in range(N+1)]
+    angles = list(np.arange(0.0, 2 * np.pi+(2 * np.pi / N), 2 * np.pi / N))
+    
+    #print(angles,len(angles))
+    #print(ratios,len(ratios))
+
+    markers=[]
+    for w in wl: #for witness in witnesslist
+        print(wl[w])
+        mean_rssi=sum(wl[w]['rssi'])/len(wl[w]['rssi'])
+        ratios.append(wl[w]['fspl']/mean_rssi*(-1))
+        angles.append(wl[w]['heading']*pi/180)
+        
+        markers.append(folium.Marker([wl[w]['lat'],wl[w]['lng']],popup=wl[w]['name']))
+
+
+
+        # the histogram of the data
+        #unique=set(wl[w]['rssi'])
+        #num_unique=len(unique)
+        
+        n, bins, patches = plt.hist(wl[w]['rssi'], 10)#, density=True, facecolor='g', alpha=0.75,)
+        plt.xlabel('RSSI')
+        plt.ylabel('Count')
+        wit=str(wl[w]['name'])
+        plt.title('Histogram of RSSI at '+wit)
+        #plt.text(60, .025, r'$\mu=100,\ \sigma=15$')
+        #plt.xlim(40, 160)
+        #plt.ylim(0, 0.03)
+        plt.grid(True)
+        #plt.show()
+        strFile=str(wl[w]['name'])+'.png'
+        if os.path.isfile(strFile):
+            print('remove')
+            os.remove(strFile)   # Opt.: os.system("rm "+strFile)
+        plt.savefig(strFile)
+        plt.close()
+        
+
+    angles,ratios=zip(*sorted(zip(angles,ratios)))
+    angles, ratios = (list(t) for t in zip(*sorted(zip(angles, ratios))))
+
+    fig, ax = plt.subplots(subplot_kw=dict(projection='polar'))
+    ax.set_theta_zero_location("N")
+    ax.set_theta_direction(-1)
+    ax.plot(angles,ratios)
+    
+    plt.xlabel('FSPL/RSSI')
+    
+
+    #print(hotspot)
+    plt.savefig(hotspot['name']+'.png',transparent=True)
+    #plt.show()
+
+
+
+
+    m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=14)
+    icon = folium.features.CustomIcon(icon_image=hotspot['name']+'.png', icon_size=(640,480))
+    marker=folium.Marker([hlat,hlng],
+              popup=hotspot['name'],
+              icon=icon)
+
+    m.add_child(marker)
+    for marker in markers:
+        m.add_child(marker)
+    m.save(hotspot['name']+'_map.html')
+
+
+    #img_data = m._to_png(5)
+    #img = Image.open(io.BytesIO(img_data))
+    #img.save(hotspot['name']+'_map.png')
+
+
+    
+
+    #background = Image.open(hotspot['name']+'_map.html')
+    #foreground = Image.open(hotspot['name']+'.png')
+
+    #background.paste(foreground, (0, 0), foreground)
+    #background.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def poc_reliability(hotspot, challenges):
     """
 
@@ -301,7 +463,7 @@ def poc_reliability(hotspot, challenges):
 
 def main():
     parser = argparse.ArgumentParser("analyze hotspots", add_help=True)
-    parser.add_argument('-x', help='report to run', choices=['poc_reliability', 'poc_v10', 'poc_summary'], required=True)
+    parser.add_argument('-x', help='report to run', choices=['poc_reliability', 'poc_v10', 'poc_polar', 'poc_summary'], required=True)
 
     parser.add_argument('-c', '--challenges', help='number of challenges to analyze, default:500', default=500, type=int)
     parser.add_argument('-n', '--name', help='hotspot name to analyze with dashes-between-words')
@@ -335,6 +497,8 @@ def main():
         poc_summary(hotspot, challenges)
     if args.x == 'poc_reliability':
         poc_reliability(hotspot, challenges)
+    if args.x == 'poc_polar':
+        poc_polar(hotspot, challenges)
     if args.x == 'poc_v10':
         pocv10_violations(hotspot, challenges)
 

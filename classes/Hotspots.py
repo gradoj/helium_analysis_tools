@@ -1,4 +1,7 @@
-from utils import load_hotspots, api_call
+try:
+    from ..utils import load_hotspots, api_call
+except:
+    from utils import load_hotspots, api_call
 
 
 class Hotspots:
