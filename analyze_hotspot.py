@@ -15,6 +15,7 @@ from PIL import Image
 import folium
 import io
 import os
+from glob import glob
 
 def __heading2str__(heading):
     headingstr = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
@@ -223,6 +224,14 @@ def poc_polar(hotspot, chals):
     H = Hotspots()
     haddr = hotspot['address']
     hlat, hlng = hotspot['lat'], hotspot['lng']
+    hname=hotspot['name']
+    try:
+        os.mkdir(hname)
+        files = glob(hname+'\\*')
+        os.remove(files)
+    except:
+        pass
+
     wl={}#witnesslist
     c=299792458
     
@@ -231,7 +240,7 @@ def poc_polar(hotspot, chals):
         for p in chal['path']:
             if p['challengee'] == haddr:
                 for w in p['witnesses']:
-                    print(w)
+                    #print(w)
                     lat=H.get_hotspot_by_addr(w['gateway'])['lat']
                     lng=H.get_hotspot_by_addr(w['gateway'])['lng']
                     name=H.get_hotspot_by_addr(w['gateway'])['name']
@@ -241,7 +250,7 @@ def poc_polar(hotspot, chals):
                                                           lng,
                                                           return_heading=True)
                     
-                    fspl=20*log10(dist_km*1000)+20*log10(915000000)+20*log10(4*pi/c)-27
+                    fspl=20*log10((dist_km+0.01)*1000)+20*log10(915000000)+20*log10(4*pi/c)-27
                     
                     try:
                         wl[w['gateway']]['lat']=lat
@@ -268,7 +277,10 @@ def poc_polar(hotspot, chals):
     for w in wl: #for witness in witnesslist
         print(wl[w])
         mean_rssi=sum(wl[w]['rssi'])/len(wl[w]['rssi'])
-        ratios.append(wl[w]['fspl']/mean_rssi*(-1))
+        ratio=wl[w]['fspl']/mean_rssi*(-1)
+        if ratio > 3.0:
+            ratio=3.0
+        ratios.append(ratio)
         angles.append(wl[w]['heading']*pi/180)
         
         markers.append(folium.Marker([wl[w]['lat'],wl[w]['lng']],popup=wl[w]['name']))
@@ -283,7 +295,7 @@ def poc_polar(hotspot, chals):
         plt.xlabel('RSSI')
         plt.ylabel('Count')
         wit=str(wl[w]['name'])
-        plt.title('Histogram of RSSI at '+wit)
+        plt.title('Histogram of '+hname+'s RSSI measured at '+wit)
         #plt.text(60, .025, r'$\mu=100,\ \sigma=15$')
         #plt.xlim(40, 160)
         #plt.ylim(0, 0.03)
@@ -291,9 +303,9 @@ def poc_polar(hotspot, chals):
         #plt.show()
         strFile=str(wl[w]['name'])+'.png'
         if os.path.isfile(strFile):
-            print('remove')
+            #print('remove')
             os.remove(strFile)   # Opt.: os.system("rm "+strFile)
-        plt.savefig(strFile)
+        plt.savefig(hname+'\\'+strFile)
         plt.close()
         
 
@@ -309,14 +321,14 @@ def poc_polar(hotspot, chals):
     
 
     #print(hotspot)
-    plt.savefig(hotspot['name']+'.png',transparent=True)
+    plt.savefig(hname+'\\'+hname+'.png',transparent=True)
     #plt.show()
 
 
 
 
     m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=14)
-    icon = folium.features.CustomIcon(icon_image=hotspot['name']+'.png', icon_size=(640,480))
+    icon = folium.features.CustomIcon(icon_image=hname+'\\'+hotspot['name']+'.png', icon_size=(640,480))
     marker=folium.Marker([hlat,hlng],
               popup=hotspot['name'],
               icon=icon)
@@ -324,7 +336,7 @@ def poc_polar(hotspot, chals):
     m.add_child(marker)
     for marker in markers:
         m.add_child(marker)
-    m.save(hotspot['name']+'_map.html')
+    m.save(hname+'\\'+hname+'_map.html')
 
 
     #img_data = m._to_png(5)
