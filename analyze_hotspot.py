@@ -225,12 +225,13 @@ def poc_polar(hotspot, chals):
     haddr = hotspot['address']
     hlat, hlng = hotspot['lat'], hotspot['lng']
     hname=hotspot['name']
-    try:
-        os.mkdir(hname)
+
+    if os.path.isfile(hname):
         files = glob(hname+'\\*')
         os.remove(files)
-    except:
-        pass
+    else:
+        os.mkdir(hname)
+        
 
     wl={}#witnesslist
     c=299792458
@@ -275,7 +276,7 @@ def poc_polar(hotspot, chals):
 
     markers=[]
     for w in wl: #for witness in witnesslist
-        print(wl[w])
+        #print(wl[w])
         mean_rssi=sum(wl[w]['rssi'])/len(wl[w]['rssi'])
         ratio=wl[w]['fspl']/mean_rssi*(-1)
         if ratio > 3.0:
@@ -292,10 +293,10 @@ def poc_polar(hotspot, chals):
         #num_unique=len(unique)
         
         n, bins, patches = plt.hist(wl[w]['rssi'], 10)#, density=True, facecolor='g', alpha=0.75,)
-        plt.xlabel('RSSI')
-        plt.ylabel('Count')
+        plt.xlabel('RSSI(dB)')
+        plt.ylabel('Count(Number of Packets)')
         wit=str(wl[w]['name'])
-        plt.title('Histogram of '+hname+'s RSSI measured at '+wit)
+        plt.title('Packets from '+hname+' measured at '+wit)
         #plt.text(60, .025, r'$\mu=100,\ \sigma=15$')
         #plt.xlim(40, 160)
         #plt.ylim(0, 0.03)
@@ -305,7 +306,7 @@ def poc_polar(hotspot, chals):
         if os.path.isfile(strFile):
             #print('remove')
             os.remove(strFile)   # Opt.: os.system("rm "+strFile)
-        plt.savefig(hname+'\\'+strFile)
+        plt.savefig(hname+'//'+strFile)
         plt.close()
         
 
@@ -321,14 +322,14 @@ def poc_polar(hotspot, chals):
     
 
     #print(hotspot)
-    plt.savefig(hname+'\\'+hname+'.png',transparent=True)
+    plt.savefig(hname+'//'+hname+'.png',transparent=True)
     #plt.show()
 
 
 
 
     m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=14)
-    icon = folium.features.CustomIcon(icon_image=hname+'\\'+hotspot['name']+'.png', icon_size=(640,480))
+    icon = folium.features.CustomIcon(icon_image=hname+'//'+hotspot['name']+'.png', icon_size=(640,480))
     marker=folium.Marker([hlat,hlng],
               popup=hotspot['name'],
               icon=icon)
@@ -336,7 +337,7 @@ def poc_polar(hotspot, chals):
     m.add_child(marker)
     for marker in markers:
         m.add_child(marker)
-    m.save(hname+'\\'+hname+'_map.html')
+    m.save(hname+'//'+hname+'_map.html')
 
 
     #img_data = m._to_png(5)
@@ -351,33 +352,6 @@ def poc_polar(hotspot, chals):
 
     #background.paste(foreground, (0, 0), foreground)
     #background.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
