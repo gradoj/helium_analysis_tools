@@ -11,11 +11,15 @@ from math import log10, pi
 from classes.Hotspots import Hotspots
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
+#from PIL import Image
 import folium
-import io
 import os
 from glob import glob
+import h3
+import shapely
+import geojson
+from shapely.geometry.point import Point
+
 
 def __heading2str__(heading):
     headingstr = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
@@ -219,16 +223,17 @@ def pocv10_violations(hotspot, chals):
             print(f"{H.get_hotspot_by_addr(n)['name']:29} | {own:5} | {dist_km:5.1f}   | {__heading2str__(heading):7} | {bad_neighbors[n]['rssi']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['rssi']*100/bad_neighbors[n]['ttl']:3.0f}%) | {bad_neighbors[n]['snr']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['snr']*100/bad_neighbors[n]['ttl']:3.0f}%) |")
 
 
-def poc_polar(hotspot, chals):
+def poc_polar(hotspot, chals, h3grid=True):
 
     H = Hotspots()
     haddr = hotspot['address']
     hlat, hlng = hotspot['lat'], hotspot['lng']
     hname=hotspot['name']
 
-    if os.path.isfile(hname):
+    if os.path.exists(hname):
         files = glob(hname+'\\*')
-        os.remove(files)
+        for file in files:
+            os.remove(file)
     else:
         os.mkdir(hname)
         
@@ -329,14 +334,59 @@ def poc_polar(hotspot, chals):
 
 
     m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=14)
-    icon = folium.features.CustomIcon(icon_image=hname+'//'+hotspot['name']+'.png', icon_size=(640,480))
-    marker=folium.Marker([hlat,hlng],
-              popup=hotspot['name'],
-              icon=icon)
 
-    m.add_child(marker)
+    if not h3grid: #if h3 don't attach radiation pattern to map
+        icon = folium.features.CustomIcon(icon_image=hname+'//'+hotspot['name']+'.png', icon_size=(640,480))
+        marker=folium.Marker([hlat,hlng],
+                  popup=hotspot['name'],
+                  icon=icon)
+        m.add_child(marker)
+
+    markers.append(folium.Marker([hlat,hlng],popup=hotspot['name']))
+    # add the witness markers
     for marker in markers:
         m.add_child(marker)
+
+    if h3grid:
+        radius=0.01
+        center = Point(hlat,hlng)          
+        circle = center.buffer(radius)  # Degrees Radius
+        gjcircle=shapely.geometry.mapping(circle)
+        circle=gjcircle['coordinates'][0]
+        my_Circle=folium.Circle(location=[hlat,hlng], radius=300, popup='300m', tooltip='300m')
+        m.add_child(my_Circle)
+        my_Circle=folium.Circle(location=[hlat,hlng], radius=1000, popup='1km', tooltip='1km')
+        m.add_child(my_Circle)
+        my_Circle=folium.Circle(location=[hlat,hlng], radius=2000, popup='2km', tooltip='2km')
+        m.add_child(my_Circle)
+        my_Circle=folium.Circle(location=[hlat,hlng], radius=3000, popup='3km', tooltip='3km')
+        m.add_child(my_Circle)
+        my_Circle=folium.Circle(location=[hlat,hlng], radius=4000, popup='4km', tooltip='4km')
+        m.add_child(my_Circle)
+        my_Circle=folium.Circle(location=[hlat,hlng], radius=5000, popup='5km', tooltip='5km')
+        m.add_child(my_Circle)
+        my_Circle=folium.Circle(location=[hlat,hlng], radius=10000, popup='10km', tooltip='10km')
+        m.add_child(my_Circle)
+
+        hexagons = list(h3.polyfill(gjcircle, 11))
+        polylines = []
+        lat = []
+        lng = []
+        i=0
+
+        for hex in hexagons:
+            polygons = h3.h3_set_to_multi_polygon([hex], geo_json=False)
+            # flatten polygons into loops.
+            outlines = [loop for polygon in polygons for loop in polygon]
+            polyline = [outline + [outline[0]] for outline in outlines][0]
+            lat.extend(map(lambda v:v[0],polyline))
+            lng.extend(map(lambda v:v[1],polyline))
+            polylines.append(polyline)
+            
+        for polyline in polylines:
+            my_PolyLine=folium.PolyLine(locations=polyline,weight=1,color='blue')
+            m.add_child(my_PolyLine)
+    
     m.save(hname+'//'+hname+'_map.html')
 
 
