@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 #from PIL import Image
 import folium
+from folium.features import DivIcon
 import os
 from glob import glob
 import h3
@@ -333,7 +334,7 @@ def poc_polar(hotspot, chals, h3grid=True):
 
 
 
-    m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=14)
+    m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=18)
 
     if not h3grid: #if h3 don't attach radiation pattern to map
         icon = folium.features.CustomIcon(icon_image=hname+'//'+hotspot['name']+'.png', icon_size=(640,480))
@@ -373,9 +374,22 @@ def poc_polar(hotspot, chals, h3grid=True):
         lat = []
         lng = []
         i=0
-
+        print('hexagon',hexagons[0])
+        print(dir(hexagons))
         for hex in hexagons:
+            dir(h3)
+            p2=h3.h3_to_geo(hex)
+            #p2 = [45.3311, -121.7113]
+            folium.Marker(p2, icon=DivIcon(
+                    #icon_size=(150,36),
+                    icon_anchor=(35,-45),
+                    html='<div style="font-size: 8pt; color : black">'+str(hex)+'</div>',
+                    )).add_to(m)
+            #m.add_child(folium.CircleMarker(p2, radius=15))
+
+            
             polygons = h3.h3_set_to_multi_polygon([hex], geo_json=False)
+
             # flatten polygons into loops.
             outlines = [loop for polygon in polygons for loop in polygon]
             polyline = [outline + [outline[0]] for outline in outlines][0]
@@ -504,9 +518,10 @@ def main():
     parser.add_argument('-c', '--challenges', help='number of challenges to analyze, default:500', default=500, type=int)
     parser.add_argument('-n', '--name', help='hotspot name to analyze with dashes-between-words')
     parser.add_argument('-a', '--address', help='hotspot address to analyze')
+    parser.add_argument('-g', '--h3grid',action='store_true',help='add h3 grid to map') #,default=False,dest='boolean_switch'
 
     args = parser.parse_args()
-
+    grid=args.h3grid
     H = Hotspots()
     hotspot = None
     if args.name:
@@ -534,7 +549,7 @@ def main():
     if args.x == 'poc_reliability':
         poc_reliability(hotspot, challenges)
     if args.x == 'poc_polar':
-        poc_polar(hotspot, challenges)
+        poc_polar(hotspot, challenges,grid)
     if args.x == 'poc_v10':
         pocv10_violations(hotspot, challenges)
 
