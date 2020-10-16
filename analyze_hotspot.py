@@ -14,12 +14,15 @@ import matplotlib.pyplot as plt
 #from PIL import Image
 import folium
 from folium.features import DivIcon
+from folium import IFrame
 import os
 from glob import glob
 import h3
 import shapely
 import geojson
+import base64
 from shapely.geometry.point import Point
+
 
 
 def __heading2str__(heading):
@@ -224,7 +227,7 @@ def pocv10_violations(hotspot, chals):
             print(f"{H.get_hotspot_by_addr(n)['name']:29} | {own:5} | {dist_km:5.1f}   | {__heading2str__(heading):7} | {bad_neighbors[n]['rssi']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['rssi']*100/bad_neighbors[n]['ttl']:3.0f}%) | {bad_neighbors[n]['snr']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['snr']*100/bad_neighbors[n]['ttl']:3.0f}%) |")
 
 
-def poc_polar(hotspot, chals, h3grid=True):
+def poc_polar(hotspot, chals):
 
     H = Hotspots()
     haddr = hotspot['address']
@@ -238,10 +241,8 @@ def poc_polar(hotspot, chals, h3grid=True):
     else:
         os.mkdir(hname)
         
-
     wl={}#witnesslist
     c=299792458
-    
     
     for chal in chals:
         for p in chal['path']:
@@ -281,6 +282,7 @@ def poc_polar(hotspot, chals, h3grid=True):
     #print(ratios,len(ratios))
 
     markers=[]
+    encoded={}
     for w in wl: #for witness in witnesslist
         #print(wl[w])
         mean_rssi=sum(wl[w]['rssi'])/len(wl[w]['rssi'])
@@ -289,10 +291,9 @@ def poc_polar(hotspot, chals, h3grid=True):
             ratio=3.0
         ratios.append(ratio)
         angles.append(wl[w]['heading']*pi/180)
-        
-        markers.append(folium.Marker([wl[w]['lat'],wl[w]['lng']],popup=wl[w]['name']))
 
-
+        #markers.append(folium.Marker([wl[w]['lat'],wl[w]['lng']],popup=wl[w]['name']))
+        markers.append([[wl[w]['lat'],wl[w]['lng']],wl[w]['name']])
 
         # the histogram of the data
         #unique=set(wl[w]['rssi'])
@@ -309,13 +310,16 @@ def poc_polar(hotspot, chals, h3grid=True):
         plt.grid(True)
         #plt.show()
         strFile=str(wl[w]['name'])+'.png'
+        strWitness=str(wl[w]['name'])
+        
         if os.path.isfile(strFile):
             #print('remove')
             os.remove(strFile)   # Opt.: os.system("rm "+strFile)
         plt.savefig(hname+'//'+strFile)
+        encoded[strWitness] = base64.b64encode(open(hname+'//'+strFile, 'rb').read())
         plt.close()
         
-
+    # create polar chart
     angles,ratios=zip(*sorted(zip(angles,ratios)))
     angles, ratios = (list(t) for t in zip(*sorted(zip(angles, ratios))))
 
@@ -325,101 +329,114 @@ def poc_polar(hotspot, chals, h3grid=True):
     ax.plot(angles,ratios)
     
     plt.xlabel('FSPL/RSSI')
-    
 
-    #print(hotspot)
     plt.savefig(hname+'//'+hname+'.png',transparent=True)
     #plt.show()
 
+    # add polar chart as a custom icon in map
+    m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=18,control_scale=True)
+    polargroup = folium.FeatureGroup(name='Polar Plot')
+    
+    icon = folium.features.CustomIcon(icon_image=hname+'//'+hotspot['name']+'.png', icon_size=(640,480))
+    marker=folium.Marker([hlat,hlng],
+              popup=hotspot['name'],
+              icon=icon)
+    polargroup.add_child(marker)
 
-
-
-    m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=18)
-
-    if not h3grid: #if h3 don't attach radiation pattern to map
-        icon = folium.features.CustomIcon(icon_image=hname+'//'+hotspot['name']+'.png', icon_size=(640,480))
-        marker=folium.Marker([hlat,hlng],
-                  popup=hotspot['name'],
-                  icon=icon)
-        m.add_child(marker)
-
-    markers.append(folium.Marker([hlat,hlng],popup=hotspot['name']))
+    # add witness markers
+    hsgroup = folium.FeatureGroup(name='Witnesses')
+    hsgroup.add_child(folium.Marker([hlat,hlng],popup=hotspot['name']))
     # add the witness markers
     for marker in markers:
-        m.add_child(marker)
+        html = '<img src="data:image/png;base64,{}">'.format
+        print('marker2',marker)
+        iframe = IFrame(html(encoded[marker[1]].decode('UTF-8')), width=640+20, height=480+20)
+        popup = folium.Popup(iframe, max_width=2650)
+        
+        mark=folium.Marker(marker[0],
+                        popup=popup)
 
-    if h3grid:
-        radius=0.01
-        center = Point(hlat,hlng)          
-        circle = center.buffer(radius)  # Degrees Radius
-        gjcircle=shapely.geometry.mapping(circle)
-        circle=gjcircle['coordinates'][0]
-        my_Circle=folium.Circle(location=[hlat,hlng], radius=300, popup='300m', tooltip='300m')
-        m.add_child(my_Circle)
-        my_Circle=folium.Circle(location=[hlat,hlng], radius=1000, popup='1km', tooltip='1km')
-        m.add_child(my_Circle)
-        my_Circle=folium.Circle(location=[hlat,hlng], radius=2000, popup='2km', tooltip='2km')
-        m.add_child(my_Circle)
-        my_Circle=folium.Circle(location=[hlat,hlng], radius=3000, popup='3km', tooltip='3km')
-        m.add_child(my_Circle)
-        my_Circle=folium.Circle(location=[hlat,hlng], radius=4000, popup='4km', tooltip='4km')
-        m.add_child(my_Circle)
-        my_Circle=folium.Circle(location=[hlat,hlng], radius=5000, popup='5km', tooltip='5km')
-        m.add_child(my_Circle)
-        my_Circle=folium.Circle(location=[hlat,hlng], radius=10000, popup='10km', tooltip='10km')
-        m.add_child(my_Circle)
+        hsgroup.add_child(mark)
 
-        hexagons = list(h3.polyfill(gjcircle, 11))
-        polylines = []
-        lat = []
-        lng = []
-        i=0
-        print('hexagon',hexagons[0])
-        print(dir(hexagons))
-        for hex in hexagons:
-            dir(h3)
-            p2=h3.h3_to_geo(hex)
-            #p2 = [45.3311, -121.7113]
-            folium.Marker(p2, icon=DivIcon(
-                    #icon_size=(150,36),
-                    icon_anchor=(35,-45),
-                    html='<div style="font-size: 8pt; color : black">'+str(hex)+'</div>',
-                    )).add_to(m)
-            #m.add_child(folium.CircleMarker(p2, radius=15))
-
-            
-            polygons = h3.h3_set_to_multi_polygon([hex], geo_json=False)
-
-            # flatten polygons into loops.
-            outlines = [loop for polygon in polygons for loop in polygon]
-            polyline = [outline + [outline[0]] for outline in outlines][0]
-            lat.extend(map(lambda v:v[0],polyline))
-            lng.extend(map(lambda v:v[1],polyline))
-            polylines.append(polyline)
-            
-        for polyline in polylines:
-            my_PolyLine=folium.PolyLine(locations=polyline,weight=1,color='blue')
-            m.add_child(my_PolyLine)
+    radius=0.01
+    center = Point(hlat,hlng)          
+    circle = center.buffer(radius)  # Degrees Radius
+    gjcircle=shapely.geometry.mapping(circle)
     
+    dcgroup = folium.FeatureGroup(name='Distance Circles')
+    radius=0.01
+    center = Point(hlat,hlng)          
+    circle = center.buffer(radius)  # Degrees Radius
+    gjcircle=shapely.geometry.mapping(circle)
+    circle=gjcircle['coordinates'][0]
+    my_Circle=folium.Circle(location=[hlat,hlng], radius=300, popup='300m', tooltip='300m')
+    dcgroup.add_child(my_Circle)
+    my_Circle=folium.Circle(location=[hlat,hlng], radius=1000, popup='1km', tooltip='1km')
+    dcgroup.add_child(my_Circle)
+    my_Circle=folium.Circle(location=[hlat,hlng], radius=2000, popup='2km', tooltip='2km')
+    dcgroup.add_child(my_Circle)
+    my_Circle=folium.Circle(location=[hlat,hlng], radius=3000, name='circles',popup='3km', tooltip='3km')
+    dcgroup.add_child(my_Circle)
+    my_Circle=folium.Circle(location=[hlat,hlng], radius=4000, popup='4km', tooltip='4km')
+    dcgroup.add_child(my_Circle)
+    my_Circle=folium.Circle(location=[hlat,hlng], radius=5000, popup='5km', tooltip='5km')
+    dcgroup.add_child(my_Circle)
+    my_Circle=folium.Circle(location=[hlat,hlng], radius=10000, popup='10km', tooltip='10km')
+    dcgroup.add_child(my_Circle)
+
+
+    h3group = folium.FeatureGroup(name='h3 Hexagon Grid')
+    h3namegroup = folium.FeatureGroup(name='h3 Hexagon Grid Names')
+    hexagons = list(h3.polyfill(gjcircle, 11))
+    polylines = []
+    lat = []
+    lng = []
+    i=0
+    print('hexagon',hexagons[0])
+    print(dir(hexagons))
+    for hex in hexagons:
+        dir(h3)
+        p2=h3.h3_to_geo(hex)
+        #p2 = [45.3311, -121.7113]
+        folium.Marker(p2, name='hex_names',icon=DivIcon(
+                #icon_size=(150,36),
+                icon_anchor=(35,-45),
+                html='<div style="font-size: 8pt; color : black">'+str(hex)+'</div>',
+                )).add_to(h3namegroup)
+        #m.add_child(folium.CircleMarker(p2, radius=15))
+    
+        polygons = h3.h3_set_to_multi_polygon([hex], geo_json=False)
+        # flatten polygons into loops.
+        outlines = [loop for polygon in polygons for loop in polygon]
+        polyline = [outline + [outline[0]] for outline in outlines][0]
+        lat.extend(map(lambda v:v[0],polyline))
+        lng.extend(map(lambda v:v[1],polyline))
+        polylines.append(polyline)
+        
+    for polyline in polylines:
+        my_PolyLine=folium.PolyLine(locations=polyline,weight=1,color='blue')
+        h3group.add_child(my_PolyLine)
+
+    
+    # add possible tiles
+    folium.TileLayer('cartodbpositron').add_to(m)
+    folium.TileLayer('cartodbdark_matter').add_to(m)
+    folium.TileLayer('openstreetmap').add_to(m)
+    folium.TileLayer('Mapbox Bright').add_to(m)
+    #folium.TileLayer('stamentoner').add_to(m)
+
+    # add markers layer
+    #marker_cluster = MarkerCluster().add_to(m)
+
+    polargroup.add_to(m)#polar plot
+    hsgroup.add_to(m)#hotspots
+    dcgroup.add_to(m)#distance circles
+    h3namegroup.add_to(m)
+    h3group.add_to(m)
+
+    # add the layer control
+    folium.LayerControl().add_to(m)
     m.save(hname+'//'+hname+'_map.html')
-
-
-    #img_data = m._to_png(5)
-    #img = Image.open(io.BytesIO(img_data))
-    #img.save(hotspot['name']+'_map.png')
-
-
-    
-
-    #background = Image.open(hotspot['name']+'_map.html')
-    #foreground = Image.open(hotspot['name']+'.png')
-
-    #background.paste(foreground, (0, 0), foreground)
-    #background.show()
-
-
-
-
 
 
 def poc_reliability(hotspot, challenges):
@@ -518,10 +535,8 @@ def main():
     parser.add_argument('-c', '--challenges', help='number of challenges to analyze, default:500', default=500, type=int)
     parser.add_argument('-n', '--name', help='hotspot name to analyze with dashes-between-words')
     parser.add_argument('-a', '--address', help='hotspot address to analyze')
-    parser.add_argument('-g', '--h3grid',action='store_true',help='add h3 grid to map') #,default=False,dest='boolean_switch'
 
     args = parser.parse_args()
-    grid=args.h3grid
     H = Hotspots()
     hotspot = None
     if args.name:
@@ -549,7 +564,7 @@ def main():
     if args.x == 'poc_reliability':
         poc_reliability(hotspot, challenges)
     if args.x == 'poc_polar':
-        poc_polar(hotspot, challenges,grid)
+        poc_polar(hotspot, challenges)
     if args.x == 'poc_v10':
         pocv10_violations(hotspot, challenges)
 
