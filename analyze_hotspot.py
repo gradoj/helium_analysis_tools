@@ -363,7 +363,7 @@ def poc_polar(hotspot, chals):
         #plt.ylim(0, 0.03)
         plt.grid(True)
         #plt.show()
-        strFile=str(wl[w]['name'])+'.png'
+        strFile=str(wl[w]['name'])+'.jpg'
         strWitness=str(wl[w]['name'])
         
         if os.path.isfile(strFile):
@@ -392,7 +392,7 @@ def poc_polar(hotspot, chals):
 
         plt.grid(True)
         #plt.show()
-        strFile='rrr'+str(rl[w]['name'])+'.png'
+        strFile='rrr'+str(rl[w]['name'])+'.jpg'
         strWitness=str(rl[w]['name'])
         
         if os.path.isfile(strFile):
@@ -434,9 +434,9 @@ def poc_polar(hotspot, chals):
     hsgroup.add_child(folium.Marker([hlat,hlng],popup=hotspot['name']))
     # add the witness markers
     for marker in markers:
-        #html = '<img src="data:image/png;base64,{}">'.format
-        html= '<p><img src="data:image/png;base64,{}" alt="" width=640 height=480 /></p> \
-               <p><img src="data:image/png;base64,{}" alt="" width=640 height=480 /></p>'.format
+        #html = '<img src="data:image/jpg;base64,{}">'.format
+        html= '<p><img src="data:image/jpg;base64,{}" alt="" width=640 height=480 /></p> \
+               <p><img src="data:image/jpg;base64,{}" alt="" width=640 height=480 /></p>'.format
         
         #print('marker',marker)
         iframe = IFrame(html(encoded[marker[1]].decode('UTF-8'),rencoded[marker[1]].decode('UTF-8')), width=640+25, height=960+40)
@@ -451,7 +451,7 @@ def poc_polar(hotspot, chals):
     center = Point(hlat,hlng)          
     circle = center.buffer(radius)  # Degrees Radius
     gjcircle=shapely.geometry.mapping(circle)
-    circle = center.buffer(radius*40)  # Degrees Radius
+    circle = center.buffer(radius*25)  # Degrees Radius
     gjcircle8=shapely.geometry.mapping(circle)
     
     dcgroup = folium.FeatureGroup(name='Distance Circles',show=False)
