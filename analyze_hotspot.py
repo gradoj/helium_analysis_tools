@@ -22,7 +22,7 @@ import shapely
 import geojson
 import base64
 from shapely.geometry.point import Point
-
+from shapely import geometry
 
 
 def __heading2str__(heading):
@@ -226,7 +226,18 @@ def pocv10_violations(hotspot, chals):
             own = 'same' if hotspot['owner'] == bad_h['owner'] else bad_h['owner'][-5:]
             print(f"{H.get_hotspot_by_addr(n)['name']:29} | {own:5} | {dist_km:5.1f}   | {__heading2str__(heading):7} | {bad_neighbors[n]['rssi']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['rssi']*100/bad_neighbors[n]['ttl']:3.0f}%) | {bad_neighbors[n]['snr']:3d}/{bad_neighbors[n]['ttl']:3d} ({bad_neighbors[n]['snr']*100/bad_neighbors[n]['ttl']:3.0f}%) |")
 
-
+def map_color_rsrp(rsrp):
+    if (int(rsrp) in range(-70, -50)):
+        return '#10FF00'
+    elif (int(rsrp) in range(-90, -70)):
+        return 'green'
+    elif (int(rsrp) in range(-110, -90)):
+        return 'blue'
+    elif (int(rsrp) in range(-130, -110)):
+        return '#FF7000'
+    else:  # range(-150, -130)
+        return 'grey'
+    
 def poc_polar(hotspot, chals):
 
     H = Hotspots()
@@ -242,13 +253,16 @@ def poc_polar(hotspot, chals):
         os.mkdir(hname)
         
     wl={}#witnesslist
+    rl={}#received list of hotspots(hotspot of intereset has been witness to these or received from them)
     c=299792458
     
-    for chal in chals:
-        for p in chal['path']:
-            if p['challengee'] == haddr:
-                for w in p['witnesses']:
-                    #print(w)
+    for chal in chals:# loop through challenges
+        
+        for p in chal['path']: #path?
+        
+            if p['challengee'] == haddr:# handles cases where hotspot of interest is transmitting
+                for w in p['witnesses']:#loop through witnesses so we can get rssi at each location challenge received
+                    #print('witness',w)
                     lat=H.get_hotspot_by_addr(w['gateway'])['lat']
                     lng=H.get_hotspot_by_addr(w['gateway'])['lng']
                     name=H.get_hotspot_by_addr(w['gateway'])['name']
@@ -271,18 +285,58 @@ def poc_polar(hotspot, chals):
                                           'fspl':fspl,
                                           'lat':lat,
                                           'lng':lng,
-                                          'name':name}                    
+                                          'name':name}
+            else: # hotspot of interest is not transmitting but may be a witness
+                challengee=p['challengee']
+                name=H.get_hotspot_by_addr(challengee)['name']
+                for w in p['witnesses']:
+                    if w['gateway'] != haddr:
+                        continue
+                    #print('transmitter ', name)
+                    #print('witness ', H.get_hotspot_by_addr(w['gateway'])['name']) # hotspot of interest was a witness
+
+
+
+                    lat=H.get_hotspot_by_addr(challengee)['lat']
+                    lng=H.get_hotspot_by_addr(challengee)['lng']
+                    #name=H.get_hotspot_by_addr(w['gateway'])['name']
+                    dist_km, heading = utils.haversine_km(hlat,
+                                                          hlng,
+                                                          lat,
+                                                          lng,
+                                                          return_heading=True)
+                    
+                    fspl=20*log10((dist_km+0.01)*1000)+20*log10(915000000)+20*log10(4*pi/c)-27
+                    
+                    try:
+                        rl[challengee]['lat']=lat
+                        rl[challengee]['lng']=lng
+                        rl[challengee]['rssi'].append(w['signal'])
+                    except KeyError:
+                        rl[challengee]={'rssi':[w['signal'],],
+                                          'dist_km':dist_km,
+                                          'heading':heading,
+                                          'fspl':fspl,
+                                          'lat':lat,
+                                          'lng':lng,
+                                          'name':name}
+
+
+    #print('rl:',rl)                    
     ratios=[1.0]*16
+    rratios=[1.0]*16
     N=len(ratios)-1
     angles=[]
+    rangles=[]
     #angles = [n / float(N) *2 *pi for n in range(N+1)]
     angles = list(np.arange(0.0, 2 * np.pi+(2 * np.pi / N), 2 * np.pi / N))
-    
+    rangles=list(np.arange(0.0, 2 * np.pi+(2 * np.pi / N), 2 * np.pi / N))
     #print(angles,len(angles))
     #print(ratios,len(ratios))
 
     markers=[]
     encoded={}
+    rencoded={}
     for w in wl: #for witness in witnesslist
         #print(wl[w])
         mean_rssi=sum(wl[w]['rssi'])/len(wl[w]['rssi'])
@@ -318,23 +372,55 @@ def poc_polar(hotspot, chals):
         plt.savefig(hname+'//'+strFile)
         encoded[strWitness] = base64.b64encode(open(hname+'//'+strFile, 'rb').read())
         plt.close()
+
+    for w in rl: #for witness in witnesslist
+        #print(rl[w])
+        mean_rssi=sum(rl[w]['rssi'])/len(rl[w]['rssi'])
+        rratio=rl[w]['fspl']/mean_rssi*(-1)
+        if rratio > 3.0:
+            rratio=3.0
+        rratios.append(rratio)
+        rangles.append(rl[w]['heading']*pi/180)
+
+        #markers.append([[wl[w]['lat'],wl[w]['lng']],wl[w]['name']])
         
+        n, bins, patches = plt.hist(rl[w]['rssi'], 10)#, density=True, facecolor='g', alpha=0.75,)
+        plt.xlabel('RSSI(dB)')
+        plt.ylabel('Count(Number of Packets)')
+        wit=str(rl[w]['name'])
+        plt.title('Packets from '+wit+' measured at '+hname)
+
+        plt.grid(True)
+        #plt.show()
+        strFile='rrr'+str(rl[w]['name'])+'.png'
+        strWitness=str(rl[w]['name'])
+        
+        if os.path.isfile(strFile):
+            #print('remove')
+            os.remove(strFile)   # Opt.: os.system("rm "+strFile)
+        plt.savefig(hname+'//'+strFile)
+        rencoded[strWitness] = base64.b64encode(open(hname+'//'+strFile, 'rb').read())
+        plt.close()
+    
     # create polar chart
     angles,ratios=zip(*sorted(zip(angles,ratios)))
+    rangles,rratios=zip(*sorted(zip(rangles,rratios)))
     angles, ratios = (list(t) for t in zip(*sorted(zip(angles, ratios))))
+    rangles, rratios = (list(t) for t in zip(*sorted(zip(rangles, rratios))))
 
     fig, ax = plt.subplots(subplot_kw=dict(projection='polar'))
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
-    ax.plot(angles,ratios)
-    
+    ax.plot(angles,ratios, marker='^', linestyle='solid',color='tomato',linewidth=2,markersize=5, label='Transmitting') #markerfacecolor='m', markeredgecolor='k',
+    ax.plot(rangles,rratios, marker='v', linestyle='solid',color='dodgerblue',linewidth=1,markersize=5, label='Receiving') #, markerfacecolor='m', markeredgecolor='k'
+    ax.legend(bbox_to_anchor=(0,1),fancybox=True, framealpha=0,loc="lower left",facecolor='#000000')
     plt.xlabel('FSPL/RSSI')
 
     plt.savefig(hname+'//'+hname+'.png',transparent=True)
     #plt.show()
 
     # add polar chart as a custom icon in map
-    m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=18,control_scale=True)
+    m = folium.Map([hlat,hlng], tiles='stamentoner', zoom_start=18,control_scale=True,max_zoom=20)
     polargroup = folium.FeatureGroup(name='Polar Plot')
     
     icon = folium.features.CustomIcon(icon_image=hname+'//'+hotspot['name']+'.png', icon_size=(640,480))
@@ -348,9 +434,12 @@ def poc_polar(hotspot, chals):
     hsgroup.add_child(folium.Marker([hlat,hlng],popup=hotspot['name']))
     # add the witness markers
     for marker in markers:
-        html = '<img src="data:image/png;base64,{}">'.format
-        print('marker2',marker)
-        iframe = IFrame(html(encoded[marker[1]].decode('UTF-8')), width=640+20, height=480+20)
+        #html = '<img src="data:image/png;base64,{}">'.format
+        html= '<p><img src="data:image/png;base64,{}" alt="" width=640 height=480 /></p> \
+               <p><img src="data:image/png;base64,{}" alt="" width=640 height=480 /></p>'.format
+        
+        #print('marker',marker)
+        iframe = IFrame(html(encoded[marker[1]].decode('UTF-8'),rencoded[marker[1]].decode('UTF-8')), width=640+25, height=960+40)
         popup = folium.Popup(iframe, max_width=2650)
         
         mark=folium.Marker(marker[0],
@@ -362,8 +451,10 @@ def poc_polar(hotspot, chals):
     center = Point(hlat,hlng)          
     circle = center.buffer(radius)  # Degrees Radius
     gjcircle=shapely.geometry.mapping(circle)
+    circle = center.buffer(radius*40)  # Degrees Radius
+    gjcircle8=shapely.geometry.mapping(circle)
     
-    dcgroup = folium.FeatureGroup(name='Distance Circles')
+    dcgroup = folium.FeatureGroup(name='Distance Circles',show=False)
     radius=0.01
     center = Point(hlat,hlng)          
     circle = center.buffer(radius)  # Degrees Radius
@@ -384,24 +475,47 @@ def poc_polar(hotspot, chals):
     my_Circle=folium.Circle(location=[hlat,hlng], radius=10000, popup='10km', tooltip='10km')
     dcgroup.add_child(my_Circle)
 
+    h3colorgroup = folium.FeatureGroup(name='h3 Hexagon Grid Color Fill',show=False)
+    style = {'fillColor': '#f5f5f5', 'lineColor': '#ffffbf'}    
+    #polygon = folium.GeoJson(gjson, style_function = lambda x: style).add_to(m)
 
-    h3group = folium.FeatureGroup(name='h3 Hexagon Grid')
-    h3namegroup = folium.FeatureGroup(name='h3 Hexagon Grid Names')
+    h3group = folium.FeatureGroup(name='h3 r11 Hex Grid',show=False)
+    h3namegroup = folium.FeatureGroup(name='h3 r11 Hex Grid Names',show=False)
+    h3fillgroup = folium.FeatureGroup(name='h3 r11 Hex Grid Color Fill',show=True)
+    h3r8namegroup = folium.FeatureGroup(name='h3 r8 Hex Grid Names',show=False)
+    h3r8group = folium.FeatureGroup(name='h3 r8 Hex Grid',show=False)
     hexagons = list(h3.polyfill(gjcircle, 11))
+    hexagons8 = list(h3.polyfill(gjcircle8, 8))
     polylines = []
+    
     lat = []
     lng = []
     i=0
-    print('hexagon',hexagons[0])
-    print(dir(hexagons))
+    #print('hexagon',hexagons[0])
+    #print(dir(h3))
+    home_hex=h3.geo_to_h3(hlat,hlng,11)
+    a=h3.k_ring(home_hex,7)
+    for h in a:
+        gjhex=h3.h3_to_geo_boundary(h,geo_json=True)
+        gjhex=geometry.Polygon(gjhex)
+        mean_rsrp=-60
+        folium.GeoJson(gjhex,
+                   style_function=lambda x, mean_rsrp=mean_rsrp: {
+                   'fillColor': map_color_rsrp(mean_rsrp),
+                   'color': map_color_rsrp(mean_rsrp),
+                   'weight': 1,
+                   'fillOpacity': 0.5},
+                   #tooltip='tooltip'
+                   ).add_to(h3fillgroup)
+    
     for hex in hexagons:
-        dir(h3)
         p2=h3.h3_to_geo(hex)
         #p2 = [45.3311, -121.7113]
         folium.Marker(p2, name='hex_names',icon=DivIcon(
                 #icon_size=(150,36),
-                icon_anchor=(35,-45),
-                html='<div style="font-size: 8pt; color : black">'+str(hex)+'</div>',
+                #icon_anchor=(35,-45),
+                icon_anchor=(35,0),
+                html='<div style="font-size: 6pt; color : black">'+str(hex)+'</div>',
                 )).add_to(h3namegroup)
         #m.add_child(folium.CircleMarker(p2, radius=15))
     
@@ -417,7 +531,34 @@ def poc_polar(hotspot, chals):
         my_PolyLine=folium.PolyLine(locations=polyline,weight=1,color='blue')
         h3group.add_child(my_PolyLine)
 
+
+
+    polylines = []
     
+    lat = []
+    lng = []
+    #polylines8 = []
+    for hex in hexagons8:
+        p2=h3.h3_to_geo(hex)
+        folium.Marker(p2, name='hex_names',icon=DivIcon(
+                #icon_size=(150,36),
+                #icon_anchor=(35,-45),
+                icon_anchor=(35,0),
+                html='<div style="font-size: 8pt; color : black">'+str(hex)+'</div>',
+                )).add_to(h3r8namegroup)
+    
+        polygons = h3.h3_set_to_multi_polygon([hex], geo_json=False)
+        # flatten polygons into loops.
+        outlines = [loop for polygon in polygons for loop in polygon]
+        polyline = [outline + [outline[0]] for outline in outlines][0]
+        lat.extend(map(lambda v:v[0],polyline))
+        lng.extend(map(lambda v:v[1],polyline))
+        polylines.append(polyline)
+        
+    for polyline in polylines:
+        my_PolyLine=folium.PolyLine(locations=polyline,weight=1,color='blue')
+        h3r8group.add_child(my_PolyLine)
+
     # add possible tiles
     folium.TileLayer('cartodbpositron').add_to(m)
     folium.TileLayer('cartodbdark_matter').add_to(m)
@@ -431,11 +572,15 @@ def poc_polar(hotspot, chals):
     polargroup.add_to(m)#polar plot
     hsgroup.add_to(m)#hotspots
     dcgroup.add_to(m)#distance circles
-    h3namegroup.add_to(m)
     h3group.add_to(m)
+    h3namegroup.add_to(m)
+    h3fillgroup.add_to(m)
+    m.keep_in_front(h3group)
+    h3r8group.add_to(m)
+    h3r8namegroup.add_to(m)
 
     # add the layer control
-    folium.LayerControl().add_to(m)
+    folium.LayerControl(collapsed=False).add_to(m)
     m.save(hname+'//'+hname+'_map.html')
 
 
