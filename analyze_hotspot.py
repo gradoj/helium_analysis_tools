@@ -343,6 +343,8 @@ def poc_polar(hotspot, chals):
         ratio=wl[w]['fspl']/mean_rssi*(-1)
         if ratio > 3.0:
             ratio=3.0
+        elif ratio < -3.0:
+            ratio = -3.0
         ratios.append(ratio)
         angles.append(wl[w]['heading']*pi/180)
 
@@ -379,6 +381,8 @@ def poc_polar(hotspot, chals):
         rratio=rl[w]['fspl']/mean_rssi*(-1)
         if rratio > 3.0:
             rratio=3.0
+        elif rratio < -3.0:
+            rratio = -3.0
         rratios.append(rratio)
         rangles.append(rl[w]['heading']*pi/180)
 
@@ -411,6 +415,9 @@ def poc_polar(hotspot, chals):
     fig, ax = plt.subplots(subplot_kw=dict(projection='polar'))
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
+    #ax.set_rmax(3)
+    #ax.set_rmin(-3)
+    ax.set_ylim(-3,3)
     ax.plot(angles,ratios, marker='^', linestyle='solid',color='tomato',linewidth=2,markersize=5, label='Transmitting') #markerfacecolor='m', markeredgecolor='k',
     ax.plot(rangles,rratios, marker='v', linestyle='solid',color='dodgerblue',linewidth=1,markersize=5, label='Receiving') #, markerfacecolor='m', markeredgecolor='k'
     ax.legend(bbox_to_anchor=(0,1),fancybox=True, framealpha=0,loc="lower left",facecolor='#000000')
@@ -439,13 +446,16 @@ def poc_polar(hotspot, chals):
                <p><img src="data:image/jpg;base64,{}" alt="" width=640 height=480 /></p>'.format
         
         #print('marker',marker)
-        iframe = IFrame(html(encoded[marker[1]].decode('UTF-8'),rencoded[marker[1]].decode('UTF-8')), width=640+25, height=960+40)
-        popup = folium.Popup(iframe, max_width=2650)
-        
-        mark=folium.Marker(marker[0],
+        try:
+            iframe = IFrame(html(encoded[marker[1]].decode('UTF-8'),rencoded[marker[1]].decode('UTF-8')), width=640+25, height=960+40)
+            popup = folium.Popup(iframe, max_width=2650)
+            mark=folium.Marker(marker[0],
                         popup=popup)
+            hsgroup.add_child(mark)
+        except KeyError: # this means this witness never heard from us so there is no marker for it
+            pass # not sure where to put the receive packet histogram so just ignore for now
+            
 
-        hsgroup.add_child(mark)
 
     radius=0.01
     center = Point(hlat,hlng)          
